@@ -71,7 +71,7 @@ export async function getMatrixMembers(
   return Object.keys(
     (
       await axios.get(
-        `/_matrix/client/v3/rooms/${matrixRoomId}/joined_members`,
+        `/_synapse/admin/v1/rooms/${matrixRoomId}/members`,
         formatUserSessionOptions(applicationServiceToken)
       )
     ).data.joined
