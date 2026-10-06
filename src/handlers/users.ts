@@ -1,4 +1,4 @@
-import { createHmac } from 'node:crypto'
+import { createHmac, randomBytes } from 'node:crypto'
 import { Entity, entities } from '../Entities'
 import adminAccessToken from '../config/synapse_access_token.json'
 import { IdMapping } from '../entity/IdMapping'
@@ -37,7 +37,7 @@ export function mapUser(rcUser: RcUser): MatrixUser {
     user_id: '',
     username: rcUser.username,
     displayname: rcUser.name,
-    password: '',
+    password: randomBytes(32).toString('base64url'),
     admin: rcUser.roles.includes('admin'),
   }
 }
