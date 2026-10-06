@@ -155,7 +155,7 @@ export async function createUser(rcUser: RcUser): Promise<MatrixUser> {
   const accessToken = await registerUser({ ...user, nonce, mac })
   user.user_id = accessToken.user_id
   user.access_token = accessToken.access_token
-  log.info(`User ${rcUser.username} created:`, user)
+  log.info(`User ${rcUser.username} created: ${user.user_id}`)
 
   await parseUserMemberships(rcUser)
 
