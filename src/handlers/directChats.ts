@@ -37,6 +37,13 @@ export async function getDirectChats(): Promise<DirectChats> {
         continue
       }
       const members = await getMatrixMembers(matrixRoomId)
+      
+      if ((room.usernames?.length ?? 0) > 1 && members.length < 2) {
+        log.warn(
+          `Direct chat ${room._id} lost one or more members during migration, skipping.`
+        )
+        continue
+      }
 
       directChats[matrixRoomId] = members
     }
