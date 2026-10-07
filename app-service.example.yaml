@@ -1,7 +1,7 @@
 id: 'rc2tuwunel migration'
 url: null
 as_token: 'CHANGE_ME_AS_TOKEN' # Change me to something different and random
-hs_token: 'CHANGE_ME_AS_TOKEN' # Change me to something different and random
+hs_token: 'CHANGE_ME_hS_TOKEN' # Change me to something different and random
 sender_localpart: '_rc_migration_bot'
 namespaces:
   users:
