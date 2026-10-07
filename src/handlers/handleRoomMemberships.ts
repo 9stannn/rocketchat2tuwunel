@@ -9,7 +9,7 @@ import {
   axios,
   formatUserSessionOptions,
   getMatrixMembers,
-} from '../helpers/synapse'
+} from '../helpers/tuwunel'
 import { getFilteredMembers } from './rooms'
 
 /**

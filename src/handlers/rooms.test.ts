@@ -3,7 +3,7 @@ import axios from 'axios'
 import { Entity, entities } from '../Entities'
 import { IdMapping } from '../entity/IdMapping'
 import * as storage from '../helpers/storage'
-import { SessionOptions } from '../helpers/synapse'
+import { SessionOptions } from '../helpers/tuwunel'
 import {
   MatrixRoomPresets,
   MatrixRoomVisibility,

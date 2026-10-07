@@ -6,7 +6,7 @@ import {
   getServerName,
   getUserSessionOptions,
   whoami,
-} from './synapse'
+} from './tuwunel'
 
 import * as storage from '../helpers/storage'
 

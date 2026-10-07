@@ -1,10 +1,10 @@
 import { createHmac, randomBytes } from 'node:crypto'
 import { Entity, entities } from '../Entities'
-import adminAccessToken from '../config/synapse_access_token.json'
+import adminAccessToken from '../config/tuwunel_access_token.json'
 import { IdMapping } from '../entity/IdMapping'
 import log from '../helpers/logger'
 import { createMembership, getUserId, save } from '../helpers/storage'
-import { axios } from '../helpers/synapse'
+import { axios } from '../helpers/tuwunel'
 
 export type RcUser = {
   _id: string
@@ -57,7 +57,7 @@ if (!adminUsername) {
 }
 
 /**
- * Return a HMAC (Hash-Based Message Authentication Code) for a Matrix user, as requested by the Synapse user registration
+ * Return a HMAC (Hash-Based Message Authentication Code) for a Matrix user, as requested by the Tuwunel user registration
  * @param user Object containing the username, password, nonce and possibly admin status
  * @returns The generated HMAC
  */
@@ -73,7 +73,7 @@ export function generateHmac(user: MatrixUser): string {
 }
 
 /**
- * Get a nonce (one-time user registration token) from Synapse
+ * Get a nonce (one-time user registration token) from Tuwunel
  * @returns The user registration nonce
  */
 async function getUserRegistrationNonce(): Promise<string> {
@@ -81,7 +81,7 @@ async function getUserRegistrationNonce(): Promise<string> {
 }
 
 /**
- * Register a user on the Synapse server
+ * Register a user on the Tuwunel server
  * @param user The Matrix user to register, including the nonce and hmac
  * @returns The new user's session's access token
  */
@@ -144,7 +144,7 @@ export async function createMapping(
 }
 
 /**
- * Map and parse a Rocket.Chat user to create a corresponding Matrix user in Synapse
+ * Map and parse a Rocket.Chat user to create a corresponding Matrix user in Tuwunel
  * @param rcUser The RC user to create in Matrix
  * @returns The created Matrix user
  */

@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { access_token } from '../config/synapse_access_token.json'
+import { access_token } from '../config/tuwunel_access_token.json'
 import log from './logger'
 import { getAccessToken } from './storage'
 
@@ -19,7 +19,7 @@ export interface SessionOptions {
 export { default as axios } from 'axios'
 
 /**
- * Check the Synapse admin credentials and log them
+ * Check the Tuwunel admin credentials and log them
  * @returns A Promise which resolves if the login succeeds or rejects if it fails
  */
 export const whoami = () =>
@@ -27,11 +27,11 @@ export const whoami = () =>
     axios
       .get('/_matrix/client/v3/account/whoami')
       .then((response) => {
-        log.info('Logged into synapse as', response.data)
+        log.info('Logged into Tuwunel as', response.data)
         resolve()
       })
       .catch((reason) => {
-        log.error(`Login to synapse failed: ${reason}`)
+        log.error(`Login to Tuwunel failed: ${reason}`)
         reject()
       })
   })
@@ -39,7 +39,7 @@ export const whoami = () =>
 /**
  * Format an access token to use in axios
  * @param accessToken The HTTP Auth Bearer Token to format
- * @returns A axios-compatible session option object to contain the credentials as Synapse expects them
+ * @returns A axios-compatible session option object to contain the credentials as Tuwunel expects them
  */
 export function formatUserSessionOptions(accessToken: string): SessionOptions {
   return { headers: { Authorization: `Bearer ${accessToken}` } }
@@ -48,7 +48,7 @@ export function formatUserSessionOptions(accessToken: string): SessionOptions {
 /**
  * Lookup and format a user's access token to use in axios
  * @param rcId The user's Rocket.Chat ID
- * @returns A axios-compatible session option object to contain the credentials as Synapse expects them
+ * @returns A axios-compatible session option object to contain the credentials as Tuwunel expects them
  */
 export async function getUserSessionOptions(
   rcId: string

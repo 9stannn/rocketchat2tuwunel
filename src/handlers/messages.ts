@@ -15,7 +15,7 @@ import {
   axios,
   formatUserSessionOptions,
   getServerName,
-} from '../helpers/synapse'
+} from '../helpers/tuwunel'
 import emojiMap from '../emojis.json'
 import { executeAndHandleMissingMember } from './rooms'
 
@@ -95,7 +95,7 @@ export async function mapTextMessage(
 ): Promise<MatrixMessage> {
   let msg = rcMessage.msg
 
-  const synapseServerName = await getServerName()
+  const serverName = await getServerName()
 
   const converterOptions: showdown.ConverterOptions = {
     literalMidWordUnderscores: true,
@@ -114,12 +114,12 @@ export async function mapTextMessage(
   } else {
     converterOptions['ghMentions'] = true
     converterOptions['ghMentionsLink'] =
-      'https://matrix.to/#/@{u}:' + synapseServerName
+      'https://matrix.to/#/@{u}:' + serverName
 
     for (const mention of msg.matchAll(
       /(^|\s)(\\)?(@([a-z\d]+(?:[a-z\d._-]+?[a-z\d]+)*))/gi
     )) {
-      const username = '@' + mention[4] + ':' + synapseServerName
+      const username = '@' + mention[4] + ':' + serverName
 
       mentions.user_ids = mentions?.user_ids || []
       mentions.user_ids.push(username)
@@ -180,7 +180,7 @@ export async function createMapping(
 }
 
 /**
- * Send a request to Synapse, creating the message event
+ * Send a request to Tuwunel, creating the message event
  * @param matrixMessage The Matrix event body to use
  * @param room_id The Matrix room, the message will be posted to
  * @param user_id The user the message will be posted by

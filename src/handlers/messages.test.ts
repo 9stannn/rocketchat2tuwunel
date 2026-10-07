@@ -13,11 +13,11 @@ import {
   mapMessage,
   mapTextMessage,
 } from './messages'
-import * as synapse from '../helpers/synapse'
+import * as tuwunel from '../helpers/tuwunel'
 
-jest.mock('../helpers/synapse')
-const mockedSynapse = synapse as jest.Mocked<typeof synapse>
-const mockedAxios = mockedSynapse.axios as jest.Mocked<typeof synapse.axios>
+jest.mock('../helpers/tuwunel')
+const mockedTuwunel = tuwunel as jest.Mocked<typeof tuwunel>
+const mockedAxios = mockedTuwunel.axios as jest.Mocked<typeof tuwunel.axios>
 
 jest.mock('../helpers/storage')
 const mockedStorage = storage as jest.Mocked<typeof storage>
@@ -281,7 +281,7 @@ test('parse custom emojis', async () => {
 })
 
 test('parse mentions', async () => {
-  mockedSynapse.getServerName.mockResolvedValue('matrix.test')
+  mockedTuwunel.getServerName.mockResolvedValue('matrix.test')
 
   // no mentions
   await expect(mapTextMessage(rcMessage)).resolves.toStrictEqual(matrixMessage)

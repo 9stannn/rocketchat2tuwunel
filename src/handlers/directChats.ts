@@ -7,7 +7,7 @@ import {
   axios,
   formatUserSessionOptions,
   getMatrixMembers,
-} from '../helpers/synapse'
+} from '../helpers/tuwunel'
 import { RcRoom, RcRoomTypes } from './rooms'
 
 export type DirectChats = { [key: string]: string[] }
@@ -101,7 +101,7 @@ export function parseDirectChats(
 /**
  * Sets the m.direct settings for users.
  * If the calculated direct chats differ from any already set ones, it is not changed, but the difference is logged.
- * @param userDirectChatMappings An object containing users and their direct chat connections, to be set in synapse
+ * @param userDirectChatMappings An object containing users and their direct chat connections, to be set in tuwunel
  */
 export async function setDirectChats(
   userDirectChatMappings: UserDirectChatMappings

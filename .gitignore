@@ -131,7 +131,7 @@ dist
 
 # for this project
 files/
-src/config/synapse_access_token.json
+src/config/tuwunel_access_token.json
 inputs/
 db.sqlite
 db.sqlite-journal

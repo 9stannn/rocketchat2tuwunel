@@ -6,7 +6,7 @@ import {
   getMessageId,
   getMappingByMatrixId,
 } from '../helpers/storage'
-import { axios, formatUserSessionOptions } from '../helpers/synapse'
+import { axios, formatUserSessionOptions } from '../helpers/tuwunel'
 import { RcMessage } from './messages'
 
 export type PinnedMessages = { [key: string]: string[] }
@@ -42,7 +42,7 @@ export async function getPinnedMessages(): Promise<PinnedMessages> {
 
 /**
  * Sets the m.room.pinned_events settings for rooms.
- * @param pinnedMessages An object containing rooms and their pinned message, to be set in synapse
+ * @param pinnedMessages An object containing rooms and their pinned message, to be set in tuwunel
  */
 export async function setPinnedMessages(
   pinnedMessages: PinnedMessages

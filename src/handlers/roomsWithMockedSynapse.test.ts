@@ -7,7 +7,7 @@ import {
 import { IdMapping } from '../entity/IdMapping'
 import log from '../helpers/logger'
 import * as storage from '../helpers/storage'
-import * as synapse from '../helpers/synapse'
+import * as tuwunel from '../helpers/tuwunel'
 import {
   executeAndHandleMissingMember,
   getCreatorSessionOptions,
@@ -17,15 +17,15 @@ import {
 jest.mock('../helpers/storage')
 const mockedStorage = storage as jest.Mocked<typeof storage>
 
-jest.mock('../helpers/synapse')
-const mockedSynapse = synapse as jest.Mocked<typeof synapse>
+jest.mock('../helpers/tuwunel')
+const mockedTuwunel = tuwunel as jest.Mocked<typeof tuwunel>
 
 const sessionOption = {
   headers: { Authorization: 'Bearer secretAuthToken' },
 }
 
 test('getting token for different room creators', async () => {
-  mockedSynapse.getUserSessionOptions.mockImplementation(async (id: string) => {
+  mockedTuwunel.getUserSessionOptions.mockImplementation(async (id: string) => {
     if (id.includes('excluded')) {
       throw new Error(`Could not retrieve access token for ID ${id}`)
     }
@@ -35,15 +35,15 @@ test('getting token for different room creators', async () => {
   expect(await getCreatorSessionOptions('')).toStrictEqual({})
   expect(await getCreatorSessionOptions('excludedUser')).toStrictEqual({})
   expect(await getCreatorSessionOptions('creator')).toStrictEqual(sessionOption)
-  expect(mockedSynapse.getUserSessionOptions).toHaveBeenCalledWith(
+  expect(mockedTuwunel.getUserSessionOptions).toHaveBeenCalledWith(
     'excludedUser'
   )
-  expect(mockedSynapse.getUserSessionOptions).toHaveBeenCalledWith('creator')
+  expect(mockedTuwunel.getUserSessionOptions).toHaveBeenCalledWith('creator')
 })
 
 const room_id = 'testRoomId'
 test('inviteMember: skip on user already in room', async () => {
-  mockedSynapse.axios.post.mockRejectedValueOnce(
+  mockedTuwunel.axios.post.mockRejectedValueOnce(
     new AxiosError('nah', '400', undefined, undefined, {
       data: {
         errcode: 'M_FORBIDDEN',
@@ -65,7 +65,7 @@ test('inviteMember: skip on user already in room', async () => {
 })
 
 test('inviteMember: skip on creator not in room', async () => {
-  mockedSynapse.axios.post.mockRejectedValueOnce(
+  mockedTuwunel.axios.post.mockRejectedValueOnce(
     new AxiosError('nah', '400', undefined, undefined, {
       data: {
         errcode: 'M_FORBIDDEN',
@@ -87,13 +87,13 @@ test('inviteMember: skip on creator not in room', async () => {
 })
 
 test('inviteMember: fail with unexpected errors', async () => {
-  mockedSynapse.axios.post.mockRejectedValueOnce('this is truly unexpected')
+  mockedTuwunel.axios.post.mockRejectedValueOnce('this is truly unexpected')
   await expect(
     inviteMember('captainLeft', room_id, sessionOption)
   ).rejects.toBe('this is truly unexpected')
 
-  expect(mockedSynapse.axios.post).toHaveBeenCalledTimes(3)
-  mockedSynapse.axios.post.mockReset()
+  expect(mockedTuwunel.axios.post).toHaveBeenCalledTimes(3)
+  mockedTuwunel.axios.post.mockReset()
 })
 
 test('executeAndHandleMissingMember: fail with unexpected errors', async () => {
@@ -131,7 +131,7 @@ test('executeAndHandleMissingMember: using admin to invite missing member', asyn
     matrixId: '@MsMissing:matrix',
     accessToken: 'mellon',
   } as IdMapping)
-  mockedSynapse.axios.get.mockResolvedValue({ data: { creator: null } })
+  mockedTuwunel.axios.get.mockResolvedValue({ data: { creator: null } })
 
   const warn = jest.spyOn(log, 'warn')
   const http = jest.spyOn(log, 'http')
@@ -149,7 +149,7 @@ test('executeAndHandleMissingMember: using admin to invite missing member', asyn
 
 test('executeAndHandleMissingMember: using admin to invite missing member', async () => {
   log.debug('using room creator')
-  mockedSynapse.axios.get.mockResolvedValue({
+  mockedTuwunel.axios.get.mockResolvedValue({
     data: { creator: 'RoomCreatorId' },
   })
 

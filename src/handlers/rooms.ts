@@ -15,7 +15,7 @@ import {
   axios,
   formatUserSessionOptions,
   getUserSessionOptions,
-} from '../helpers/synapse'
+} from '../helpers/tuwunel'
 import { RcUser } from './users'
 
 /**
@@ -195,7 +195,7 @@ export async function getCreatorSessionOptions(
 }
 
 /**
- * Send a request to Synapse, creating the room
+ * Send a request to Tuwunel, creating the room
  * @param matrixRoom The Matrix room object to create
  * @param creatorSessionOptions The credentials of the room creator
  * @returns The Matrix room ID
@@ -214,7 +214,7 @@ export async function registerRoom(
 }
 
 /**
- * Send events to Synapse, inviting users to a room. Already participating users will not cause problems.
+ * Send events to Tuwunel, inviting users to a room. Already participating users will not cause problems.
  * @param inviteeId The Matrix ID of the invited user
  * @param roomId The Matrix ID of the room
  * @param creatorSessionOptions The credentials of the room creator
@@ -257,7 +257,7 @@ export async function inviteMember(
 }
 
 /**
- * Send events to Synapse, accepting an invitation to a room
+ * Send events to Tuwunel, accepting an invitation to a room
  * @param inviteeMapping The IDMapping of the invited user
  * @param roomId The Matrix ID of the room
  */

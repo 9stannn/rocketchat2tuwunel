@@ -7,7 +7,7 @@ import {
 import lineByLine from 'n-readlines'
 import log from '../helpers/logger'
 import * as storage from '../helpers/storage'
-import * as synapse from '../helpers/synapse'
+import * as tuwunel from '../helpers/tuwunel'
 import {
   DirectChats,
   UserDirectChatMappings,
@@ -23,8 +23,8 @@ const mockedLineByLine = lineByLine as jest.Mocked<typeof lineByLine>
 jest.mock('../helpers/storage')
 const mockedStorage = storage as jest.Mocked<typeof storage>
 
-jest.mock('../helpers/synapse')
-const mockedSynapse = synapse as jest.Mocked<typeof synapse>
+jest.mock('../helpers/tuwunel')
+const mockedTuwunel = tuwunel as jest.Mocked<typeof tuwunel>
 
 const directChats: DirectChats = {
   abc: ['a', 'b', 'c'],
@@ -56,7 +56,7 @@ test('get direct chats', async () => {
     .mockReturnValue(false)
 
   mockedStorage.getRoomId.mockImplementation(async (id: string) => id)
-  mockedSynapse.getMatrixMembers.mockImplementation(
+  mockedTuwunel.getMatrixMembers.mockImplementation(
     async (roomId: string) => directChats[roomId]
   )
 
@@ -68,7 +68,7 @@ test('get direct chats', async () => {
 
 test('setting direct chats', async () => {
   const debug = jest.spyOn(log, 'debug')
-  mockedSynapse.axios.get
+  mockedTuwunel.axios.get
     .mockRejectedValueOnce(new AxiosError('Unauthorized'))
     .mockRejectedValueOnce(
       new AxiosError('Not found', '404', undefined, undefined, {
@@ -92,11 +92,11 @@ test('setting direct chats', async () => {
       testerExistingDifferentSettings: { otherPartner: ['d1fferent'] },
     })
   ).resolves.toBeUndefined()
-  expect(mockedSynapse.axios.get).toHaveBeenCalledWith(
+  expect(mockedTuwunel.axios.get).toHaveBeenCalledWith(
     '/_matrix/client/v3/user/a/account_data/m.direct',
     undefined
   )
-  expect(mockedSynapse.axios.put).toHaveBeenLastCalledWith(
+  expect(mockedTuwunel.axios.put).toHaveBeenLastCalledWith(
     '/_matrix/client/v3/user/testerNewSettings/account_data/m.direct',
     { partner: ['chatname'] },
     undefined

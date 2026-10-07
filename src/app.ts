@@ -13,7 +13,7 @@ import { handle as handleRoom } from './handlers/rooms'
 import { handle as handleUser } from './handlers/users'
 import log from './helpers/logger'
 import { initStorage } from './helpers/storage'
-import { whoami } from './helpers/synapse'
+import { whoami } from './helpers/tuwunel'
 
 log.info('rocketchat2matrix starts.')
 
