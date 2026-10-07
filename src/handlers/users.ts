@@ -140,7 +140,9 @@ export async function createMapping(
   mapping.accessToken = matrixUser.access_token
 
   await save(mapping)
-  log.debug('Mapping added:', mapping)
+  log.debug(
+    `Mapping added: ${mapping.rcId} -> ${mapping.matrixId}`
+  )
 }
 
 /**

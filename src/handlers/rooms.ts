@@ -185,7 +185,7 @@ export async function getCreatorSessionOptions(
   if (creatorId) {
     try {
       const creatorSessionOptions = await getUserSessionOptions(creatorId)
-      log.debug('Room owner session generated:', creatorSessionOptions)
+      log.debug(`Room owner session generated for Rocket.Chat user ${creatorId}`)
       return creatorSessionOptions
     } catch (error) {
       log.warn(error)

@@ -15,7 +15,7 @@ import log from './helpers/logger'
 import { initStorage } from './helpers/storage'
 import { whoami } from './helpers/tuwunel'
 
-log.info('rocketchat2matrix starts.')
+log.info('rocketchat2tuwunel starts.')
 
 /**
  * Reads a file line by line and handles the lines parsed to JSON according to the expected type
