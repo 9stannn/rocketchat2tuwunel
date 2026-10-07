@@ -49,21 +49,18 @@ test('get user session options', async () => {
 test('get Matrix members', async () => {
   mockedAxios.get.mockResolvedValueOnce({
     data: {
-      joined: {
-        peter: {},
-        paul: {},
-        mary: {},
-      },
+      members: ['peter', 'paul', 'mary'],
     },
   })
+
   await expect(getMatrixMembers('matrixRoomId')).resolves.toStrictEqual([
     'peter',
     'paul',
     'mary',
   ])
+
   expect(mockedAxios.get).toHaveBeenLastCalledWith(
-    '/_matrix/client/v3/rooms/matrixRoomId/joined_members',
-    formatUserSessionOptions('')
+    '/_synapse/admin/v1/rooms/matrixRoomId/members'
   )
 })
 

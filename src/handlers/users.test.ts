@@ -45,7 +45,16 @@ const nonce = 'test-nonce'
 const mac = 'be0537407ab3c82de908c5763185556e98a7211c'
 
 test('mapping users', () => {
-  expect(mapUser(rcUser)).toStrictEqual(matrixUser)
+  const mappedUser = mapUser(rcUser)
+
+  expect(mappedUser).toMatchObject({
+    user_id: '',
+    username: rcUser.username,
+    displayname: rcUser.name,
+    admin: false,
+  })
+
+  expect(mappedUser.password).toMatch(/^[A-Za-z0-9_-]{43}$/)
 })
 
 test('generating correct hmac', () => {
@@ -56,33 +65,60 @@ test('creating users', async () => {
   const matrixId = 'TestRandomId'
   const accessToken = 'secretaccesstoken'
 
-  mockedAxios.get.mockResolvedValue({ data: { nonce: nonce } })
+  mockedAxios.get.mockResolvedValue({
+    data: { nonce },
+  })
+
   mockedAxios.post.mockResolvedValue({
-    data: { user_id: matrixId, access_token: accessToken },
+    data: {
+      user_id: matrixId,
+      access_token: accessToken,
+    },
   })
 
   const createdUser = await createUser(rcUser)
-  expect(createdUser).toStrictEqual({
-    ...matrixUser,
+
+  expect(createdUser).toMatchObject({
     user_id: matrixId,
+    username: rcUser.username,
+    displayname: rcUser.name,
+    admin: false,
     access_token: accessToken,
   })
 
-  expect(mockedAxios.get).toHaveBeenCalledWith('/_synapse/admin/v1/register')
-  expect(mockedAxios.post).toHaveBeenCalledWith('/_synapse/admin/v1/register', {
-    ...matrixUser,
-    nonce,
-    mac,
-  })
+  expect(createdUser.password).toMatch(/^[A-Za-z0-9_-]{43}$/)
+
+  expect(mockedAxios.get).toHaveBeenCalledWith(
+    '/_synapse/admin/v1/register'
+  )
+
+  expect(mockedAxios.post).toHaveBeenCalledWith(
+    '/_synapse/admin/v1/register',
+    expect.objectContaining({
+      user_id: '',
+      username: rcUser.username,
+      displayname: rcUser.name,
+      password: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
+      admin: false,
+      nonce,
+      mac: expect.any(String),
+    })
+  )
+
+  const registeredUser = mockedAxios.post.mock.calls[0][1] as MatrixUser
+
+  expect(registeredUser.mac).toBe(generateHmac(registeredUser))
 
   expect(mockedStorage.createMembership).toHaveBeenCalledWith(
     rcUser.__rooms[0],
     rcUser._id
   )
+
   expect(mockedStorage.createMembership).toHaveBeenCalledWith(
     rcUser.__rooms[1],
     rcUser._id
   )
+
   expect(mockedStorage.createMembership).toHaveBeenCalledTimes(2)
 })
 

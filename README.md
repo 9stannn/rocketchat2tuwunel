@@ -1,38 +1,198 @@
 # Rocket.Chat to Tuwunel Migration Script
 
-Script to migrate users, channels and messages from Rocket.Chat communication platform to a Tuwunel Matrix homeserver.
+Script to migrate users, channels and messages from Rocket.Chat to a Tuwunel Matrix homeserver.
+
+This project is a fork of `verdigado/rocketchat2matrix`, adapted specifically for Tuwunel.
 
 It currently has beta quality and comes with no warranty.
 
 ## Installation and Usage
 
-This setup is intended to migrate from Rocket.Chat to Tuwunel once, using MongoDB dumps and preferably a fresh Tuwunel instance.
+This setup is intended for a one-time migration from Rocket.Chat to Tuwunel using MongoDB exports and preferably a fresh Tuwunel instance.
 
-### Exporting RC data
+The documented setup uses the official Tuwunel Debian package with systemd and RocksDB. Docker is not required.
 
-Currently manually via MongoDB. Run the following on the Rocket.Chat server:
+### Requirements
+
+- Debian or another compatible `apt`-based distribution
+- Node.js >= 19
+- npm
+- git
+- curl
+- jq
+- openssl
+- MongoDB database access to the Rocket.Chat server
+
+### Installing Tuwunel
+
+Install the required tools:
 
 ```shell
-mongoexport --collection=rocketchat_message --db=rocketchat --out=rocketchat_message.json
-mongoexport --collection=rocketchat_room --db=rocketchat --out=rocketchat_room.json
-mongoexport --collection=users --db=rocketchat --out=users.json
+apt update
+apt install -y curl ca-certificates git jq openssl
 ```
 
-Copy them to `inputs/`.
+Add the official Tuwunel repository:
+
+```shell
+curl -fsSL \
+  -o /usr/share/keyrings/tuwunel-archive-keyring.gpg \
+  https://apt.f.dog/tuwunel-archive-keyring.gpg
+```
+
+Create `/etc/apt/sources.list.d/tuwunel.sources` with:
+
+```text
+Types: deb
+URIs: https://apt.f.dog
+Suites: stable
+Components: main
+Signed-By: /usr/share/keyrings/tuwunel-archive-keyring.gpg
+```
+
+Install Tuwunel:
+
+```shell
+apt update
+apt install -y tuwunel
+systemctl stop tuwunel
+```
+
+Do not start Tuwunel before choosing the final `server_name`.
+
+### Installing the Migration Script
+
+Clone the repository:
+
+```shell
+cd /opt
+git clone https://github.com/9stannn/rocketchat2tuwunel.git
+cd rocketchat2tuwunel
+```
+
+Install the Node.js dependencies:
+
+```shell
+npm ci
+```
 
 ### Configuring Tuwunel
 
-Copy the environment example:
+Edit:
+
+```text
+/etc/tuwunel/tuwunel.toml
+```
+
+A minimal configuration for a local migration server is:
+
+```toml
+[global]
+
+server_name = "my.matrix.host"
+
+database_path = "/var/lib/tuwunel"
+
+address = ["127.0.0.1"]
+port = 6167
+
+allow_registration = false
+allow_federation = false
+
+registration_shared_secret_file = "/etc/tuwunel/.reg_shared_secret"
+
+appservice_dir = "/etc/tuwunel/appservices"
+```
+
+Choose `server_name` carefully before the first start. It becomes part of all Matrix user IDs and should not be changed afterwards.
+
+Generate the registration shared secret:
+
+```shell
+openssl rand -hex 32 > /etc/tuwunel/.reg_shared_secret
+chown root:tuwunel /etc/tuwunel/.reg_shared_secret
+chmod 640 /etc/tuwunel/.reg_shared_secret
+```
+
+Create the Application Service directory:
+
+```shell
+mkdir -p /etc/tuwunel/appservices
+chown root:tuwunel /etc/tuwunel/appservices
+chmod 750 /etc/tuwunel/appservices
+```
+
+Enable the service without starting it yet:
+
+```shell
+systemctl enable tuwunel
+```
+
+### Configuring the Application Service
+
+Copy the example included in the repository:
+
+```shell
+cp app-service.example.yaml \
+  /etc/tuwunel/appservices/rocketchat2tuwunel.yaml
+```
+
+Edit:
+
+```text
+/etc/tuwunel/appservices/rocketchat2tuwunel.yaml
+```
+
+The configuration should look like:
+
+```yaml
+id: 'rc2tuwunel migration'
+url: null
+
+as_token: 'CHANGE_ME_AS_TOKEN'
+hs_token: 'CHANGE_ME_HS_TOKEN'
+
+sender_localpart: '_rc_migration_bot'
+
+namespaces:
+  users:
+    - exclusive: false
+      regex: '@.*'
+```
+
+Generate two different random values:
+
+```shell
+openssl rand -hex 32
+openssl rand -hex 32
+```
+
+Use one value for `as_token` and another value for `hs_token`.
+
+The `as_token` value must also be configured as `AS_TOKEN` in `.env`.
+
+Set the permissions:
+
+```shell
+chown root:tuwunel \
+  /etc/tuwunel/appservices/rocketchat2tuwunel.yaml
+
+chmod 640 \
+  /etc/tuwunel/appservices/rocketchat2tuwunel.yaml
+```
+
+### Configuring the Migration Environment
+
+Copy the example:
 
 ```shell
 cp .env.example .env
 ```
 
-Edit `.env` and configure at least:
+Edit `.env` manually:
 
 ```env
-HOMESERVER_URL='http://localhost:8008'
-TUWUNEL_SERVER_NAME='my.matrix.host'
+HOMESERVER_URL='http://127.0.0.1:6167'
 REGISTRATION_SHARED_SECRET='change-me'
 AS_TOKEN='change-me'
 EXCLUDED_USERS='rocket.cat'
@@ -40,65 +200,87 @@ ADMIN_USERNAME='admin'
 ADMIN_PASSWORD='verySecretPassword'
 ```
 
-Choose `TUWUNEL_SERVER_NAME` carefully before starting Tuwunel. It becomes part of Matrix user IDs and should not be changed afterwards.
+`REGISTRATION_SHARED_SECRET` must contain the same value stored in:
 
-Generate strong random secrets, for example:
-
-```shell
-openssl rand -hex 32
+```text
+/etc/tuwunel/.reg_shared_secret
 ```
 
-### Configuring the Application Service
+`AS_TOKEN` must contain the same value as `as_token` in:
 
-Create the Application Service directory:
-
-```shell
-mkdir -p files/appservices
+```text
+/etc/tuwunel/appservices/rocketchat2tuwunel.yaml
 ```
 
-Copy the example configuration:
+Use a strong password for `ADMIN_PASSWORD`.
+
+### Exporting Rocket.Chat Data
+
+Export the required MongoDB collections on the Rocket.Chat server:
 
 ```shell
-cp app-service.example.yaml files/appservices/rocketchat2matrix.yaml
+mongoexport \
+  --collection=rocketchat_message \
+  --db=rocketchat \
+  --out=rocketchat_message.json
+
+mongoexport \
+  --collection=rocketchat_room \
+  --db=rocketchat \
+  --out=rocketchat_room.json
+
+mongoexport \
+  --collection=users \
+  --db=rocketchat \
+  --out=users.json
 ```
 
-Edit `files/appservices/rocketchat2matrix.yaml`.
+If the Rocket.Chat MongoDB instance requires authentication, a replica set or a custom connection string, use `mongoexport --uri=...` instead.
 
-The `as_token` must be the same value as `AS_TOKEN` in `.env`.
+Copy the three files into:
 
-Generate a separate random `hs_token`.
+```text
+inputs/
+```
 
-Tuwunel loads this Application Service when the container starts. Tuwunel supports Application Service registration files using the standard Matrix YAML format.
+The directory must contain:
 
-### Installing the Script
+```text
+inputs/
+├── rocketchat_message.json
+├── rocketchat_room.json
+└── users.json
+```
 
-Install NodeJS >= v19 and npm.
+### Preparing a Fresh Tuwunel Instance
 
-Install the dependencies:
+The repository includes `reset.sh` for preparing a fresh migration environment.
+
+Run it from the repository directory:
 
 ```shell
-npm ci
+sudo ./reset.sh
 ```
 
-### Starting Tuwunel
+The script:
 
-The included Docker Compose configuration starts a local Tuwunel instance on port `8008`.
+- stops the Tuwunel systemd service
+- deletes the current RocksDB data in `/var/lib/tuwunel`
+- removes the local migration database
+- removes the previous migration admin access token
+- starts Tuwunel
+- waits for the homeserver to become available
+- creates the configured Matrix migration administrator
+- saves its access token to `src/config/tuwunel_access_token.json`
+- removes old migration log files
 
-For the first setup, run:
+> **Warning**
+>
+> `reset.sh` deletes the complete Tuwunel database stored in `/var/lib/tuwunel`.
+> Only use it for a fresh installation, a test environment, or when you intentionally want to restart the migration from zero.
+> Do not run it on a Tuwunel server containing data that must be kept.
 
-```shell
-./reset.sh
-```
-
-The reset script:
-
-- removes the previous Tuwunel test database
-- starts a fresh Tuwunel instance
-- creates the Matrix admin user
-- stores its access token for the migration script
-- clears the local migration database and logs
-
-Tuwunel's Docker image supports configuration through `TUWUNEL_*` environment variables.
+After the script completes, Tuwunel is running through systemd and the migration admin token is ready.
 
 ### Running the Migration
 
@@ -108,7 +290,9 @@ Run:
 npm start
 ```
 
-The migration can be restarted if it is interrupted. Existing mappings are stored locally so already migrated objects are not blindly recreated.
+The migration processes users, rooms and messages and then applies direct chats, pinned messages and final room memberships.
+
+The migration can be restarted if it is interrupted. Existing mappings are stored in the local SQLite database so already migrated objects are not blindly recreated.
 
 A completed migration ends with:
 
@@ -118,66 +302,79 @@ info: Done.
 
 ### Migrated User Passwords
 
-Rocket.Chat user passwords cannot be migrated.
+Rocket.Chat passwords cannot be migrated.
 
-Tuwunel requires a non-empty password when users are created, so this fork generates a random password for each migrated user.
+Tuwunel requires a non-empty password when creating a user, so the migration generates a random password for every migrated Rocket.Chat user.
 
-After migration, users therefore need either:
+After migration, users therefore need a Matrix password reset or an external authentication method such as SSO.
 
-- a Matrix password reset
-- SSO / external authentication
+The migration administrator keeps the password configured with `ADMIN_PASSWORD`.
 
-The migration admin keeps the password configured with `ADMIN_PASSWORD`.
+### Testing
 
-### Running Tests
+Run the test suite with:
 
 ```shell
 npm test
 ```
 
-### Cleaning Up
-
-To reset the complete migration environment:
+You can also verify that Tuwunel is responding locally:
 
 ```shell
-./reset.sh
+curl http://127.0.0.1:6167/_matrix/client/versions
 ```
 
-Before using the migrated homeserver in production, remove migration-only credentials such as the registration shared secret and Application Service if they are no longer required.
+For normal client access, configure an appropriate reverse proxy and TLS setup for your Matrix deployment.
+
+### Cleaning Up After Migration
+
+Before putting the migrated homeserver into production, remove migration-only credentials that are no longer required.
+
+This can include:
+
+- the registration shared secret
+- the Application Service registration if the migration is completely finished
+- `src/config/tuwunel_access_token.json`
+- `.env`
+- migration logs
+- Rocket.Chat export files containing user or message data
+
+Restart Tuwunel after removing or changing its Application Service configuration.
 
 ## Design Decisions
 
-- Getting data from Rocket.Chat via manual mongodb export
-- Room to Channel conversion:
-  - Read-only attributes of channels not converted to power levels due to complexity
-- Reactions and emojis:
-  - So far only reactions used in our chats have been translated
-  - To add more, `src/emojis.json` can be modified (PRs with additions are appreciated)
-    - These mappings take precedence over the used translation library
-  - Individual logos of _netzbegruenung_ and _verdigado_ have been replaced by a generic sunflower
-  - Skin colour tones and genders have been ignored in the manual translation, using the neutral versions
-- Discussions are not translated, yet, as they have a channel-like data structure which probably should be translated to threads
-- Generally state change events are not translated (anymore, for the sake of complexity), but the final state should be equal
-  - Memberships: change events are ignored. Memberships are applied at the start, when needed or terminated at the end
-  - Name changes: as the previous state is usually unknown, they are ignored
-- If the root message of a thread is deleted or of a deleted user, the thread will be skipped
-- The script follows a design to easily continue a migration if the script crashed by restarting it
-- Any normal username containing the configured admin name causes trouble
+- Rocket.Chat data is imported from manual MongoDB exports.
+- Rocket.Chat rooms are converted to Matrix rooms.
+- Read-only channel attributes are not translated into Matrix power levels.
+- Reaction and emoji mappings are handled by `src/emojis.json`.
+- Discussions are not currently converted to Matrix threads.
+- Historical state-change events are generally not recreated; the final room state is preferred instead.
+- Membership changes are applied when required and finalized at the end of the migration.
+- Historical room-name changes are not recreated when the previous state cannot be determined.
+- Threads whose root message is missing or belongs to a deleted user may be skipped.
+- The migration is designed so it can continue after an interruption by using its local mappings.
+- A regular Rocket.Chat username that conflicts with the configured migration administrator can cause problems.
 
 ## Contributing
 
-This FOSS project is open for contributions. Just open an issue or a pull request.
+Contributions are welcome through issues and pull requests.
 
-### Hint: pre-commit
+### Pre-commit
 
-To keep the code clean and properly formatted, install and use [`pre-commit`](https://pre-commit.com/).
+The repository includes pre-commit configuration for formatting and code-quality checks.
 
-- Install it via `pip install pre-commit`
-- Install the repo's pre-commit hooks for yourself: `pre-commit install`.
+Install it with:
 
-  Now it will run whenever you commit something
+```shell
+pip install pre-commit
+pre-commit install
+```
 
-- Run pre-commit against all files: `pre-commit run --all-files`
+Run all hooks manually with:
+
+```shell
+pre-commit run --all-files
+```
 
 ## License
 
@@ -186,11 +383,11 @@ Licensed under AGPL v3 or newer.
 Original project Copyright 2023 verdigado eG
 <support@verdigado.com>.
 
-This fork includes modifications for Tuwunel support.
+This fork contains modifications for Tuwunel support.
 
 ## Support
 
-For issues related to this fork, please use the GitHub issue tracker.
+For issues related to this fork, use the GitHub issue tracker.
 
 Original project:
 https://github.com/verdigado/rocketchat2matrix
