@@ -11,7 +11,7 @@ import {
   getUserId,
   initStorage,
 } from '../src/helpers/storage'
-import { axios, formatUserSessionOptions } from '../src/helpers/synapse'
+import { axios, formatUserSessionOptions } from '../src/helpers/tuwunel'
 
 beforeAll(async () => {
   await initStorage()
