@@ -130,7 +130,6 @@ dist
 .pnp.*
 
 # for this project
-files/
 src/config/tuwunel_access_token.json
 inputs/
 db.sqlite

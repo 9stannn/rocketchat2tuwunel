@@ -3,7 +3,7 @@ import { access_token } from '../config/tuwunel_access_token.json'
 import log from './logger'
 import { getAccessToken } from './storage'
 
-axios.defaults.baseURL = process.env.HOMESERVER_URL || 'http://localhost:8008'
+axios.defaults.baseURL = process.env.HOMESERVER_URL || 'http://127.0.0.1:6167'
 axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`
 axios.defaults.headers.post['Content-Type'] = 'application/json'
 

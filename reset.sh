@@ -36,11 +36,37 @@ fi
 
 set -u
 
-echo 'Resetting containers and databases'
-docker compose down -v
+if [ "$EUID" -ne 0 ]
+then
+  echo 'This script must be run as root. Exiting.'
+  exit 1
+fi
+
+if ! systemctl cat tuwunel.service > /dev/null 2>&1
+then
+  echo 'Tuwunel systemd service was not found. Exiting.'
+  exit 1
+fi
+
+echo 'Stopping Tuwunel'
+systemctl stop tuwunel
+
+echo 'Resetting Tuwunel database'
+
+if [ ! -d /var/lib/tuwunel ]
+then
+  echo '/var/lib/tuwunel does not exist. Exiting.'
+  exit 1
+fi
+
+find /var/lib/tuwunel -mindepth 1 -delete
+chown tuwunel:tuwunel /var/lib/tuwunel
+
 rm -f db.sqlite
 rm -f src/config/tuwunel_access_token.json
-docker compose up -d
+
+echo 'Starting Tuwunel'
+systemctl start tuwunel
 
 echo 'Waiting for Tuwunel'
 until curl -fsS "$HOMESERVER_URL/_matrix/client/versions" > /dev/null
@@ -83,6 +109,9 @@ curl -fsS \
   > /dev/null
 
 echo 'Saving admin access token'
+
+mkdir -p src/config
+
 curl -fsS \
   --request POST \
   --url "$HOMESERVER_URL/_matrix/client/v3/login" \
@@ -94,9 +123,11 @@ curl -fsS \
       type: "m.login.password",
       user: $username,
       password: $password,
-      device_id: "DEV"
+      device_id: "RCMIGRATION"
     }')" \
   > src/config/tuwunel_access_token.json
+
+chmod 600 src/config/tuwunel_access_token.json
 
 echo 'Removing log files'
 rm -f ./*.log
