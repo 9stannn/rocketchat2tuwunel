@@ -1,12 +1,15 @@
 {
   "author": "HerHde",
-  "description": "Rocket.Chat to Matrix migration script",
+  "contributors": [
+    "9stannn"
+  ],
+  "description": "Rocket.Chat to Tuwunel migration script",
   "license": "AGPL-3.0-or-later",
   "main": "dist/app.js",
-  "name": "rocketchat2matrix",
+  "name": "rocketchat2tuwunel",
   "repository": {
     "type": "git",
-    "url": "https://git.verdigado.com/NB-Public/rocketchat2matrix"
+    "url": "https://github.com/9stannn/rocketchat2tuwunel"
   },
   "engines": {
     "node": ">=19.0.0"
