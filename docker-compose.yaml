@@ -1,46 +1,24 @@
 services:
-  synapse:
-    image: docker.io/matrixdotorg/synapse:v1.111.0@sha256:22ae556e0de40cc2e32762260a32bd9112bd87fad605195e34d6e2fe694eee01
-    # Since synapse does not retry to connect to the database, restart upon
-    # failure
-    restart: 'no'
-    # See the readme for a full documentation of the environment settings
-    # NOTE: You must edit homeserver.yaml to use postgres, it defaults to sqlite
+  tuwunel:
+    image: ghcr.io/matrix-construct/tuwunel:v1.9.3
+    container_name: tuwunel
+
+    restart: "no"
+    stop_grace_period: 30m
+
+    ports:
+      - "8008:8008"
+
     environment:
-      - SYNAPSE_CONFIG_PATH=/data/homeserver.yaml
+      TUWUNEL_SERVER_NAME: ${TUWUNEL_SERVER_NAME:-my.matrix.host}
+      TUWUNEL_ALLOW_REGISTRATION: "false"
+      TUWUNEL_ALLOW_FEDERATION: "false"
+      TUWUNEL_REGISTRATION_SHARED_SECRET: ${REGISTRATION_SHARED_SECRET}
+      TUWUNEL_APPSERVICE_DIR: /etc/tuwunel/appservices
+
     volumes:
-      # You may either store all the files in a local folder
-      - ./files:/data
-      # .. or you may split this between different storage points
-      # - ./files:/data
-      # - /path/to/ssd:/data/uploads
-      # - /path/to/large_hdd:/data/media
-    # depends_on:
-    #   - db
-    # In order to expose Synapse, remove one of the following, you might for
-    # instance expose the TLS port directly:
-    ports:
-      - 8008:8008/tcp
+      - tuwunel-data:/var/lib/tuwunel
+      - ./files/appservices:/etc/tuwunel/appservices:ro
 
-  # db:
-  #   image: docker.io/postgres:12-alpine
-  #   # Change that password, of course!
-  #   environment:
-  #     - POSTGRES_USER=synapse
-  #     - POSTGRES_PASSWORD=changeme
-  #     # ensure the database gets created correctly
-  #     # https://matrix-org.github.io/synapse/latest/postgres.html#set-up-database
-  #     - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
-  #   volumes:
-  #     # You may store the database tables in a local folder..
-  #     - ./schemas:/var/lib/postgresql/data
-  #     # .. or store them on some high performance storage for better results
-  #     # - /path/to/ssd/storage:/var/lib/postgresql/data
-
-  synapse-admin:
-    container_name: synapse-admin
-    hostname: synapse-admin
-    image: awesometechnologies/synapse-admin:0.10.3@sha256:70a6e988af1b4acc2f3c0dea8c2eebc27a9ecbe638a472540104625326c5e259
-    ports:
-      - '8080:80'
-    restart: 'no'
+volumes:
+  tuwunel-data:
