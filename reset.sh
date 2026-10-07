@@ -48,6 +48,15 @@ then
   exit 1
 fi
 
+APPSERVICE_FILE='/etc/tuwunel/appservices/rocketchat2tuwunel.yaml'
+APPSERVICE_DISABLED='/etc/tuwunel/rocketchat2tuwunel.yaml.disabled'
+
+if [ ! -f "$APPSERVICE_FILE" ]
+then
+  echo "$APPSERVICE_FILE was not found. Exiting."
+  exit 1
+fi
+
 echo 'Stopping Tuwunel'
 systemctl stop tuwunel
 
@@ -65,7 +74,11 @@ chown tuwunel:tuwunel /var/lib/tuwunel
 rm -f db.sqlite
 rm -f src/config/tuwunel_access_token.json
 
-echo 'Starting Tuwunel'
+echo 'Temporarily disabling the Application Service'
+
+mv "$APPSERVICE_FILE" "$APPSERVICE_DISABLED"
+
+echo 'Starting Tuwunel without the Application Service'
 systemctl start tuwunel
 
 echo 'Waiting for Tuwunel'
@@ -108,6 +121,23 @@ curl -fsS \
     }')" \
   > /dev/null
 
+echo 'Restarting Tuwunel with the Application Service'
+
+systemctl stop tuwunel
+
+mv "$APPSERVICE_DISABLED" "$APPSERVICE_FILE"
+
+chown root:tuwunel "$APPSERVICE_FILE"
+chmod 640 "$APPSERVICE_FILE"
+
+systemctl start tuwunel
+
+echo 'Waiting for Tuwunel'
+until curl -fsS "$HOMESERVER_URL/_matrix/client/versions" > /dev/null
+do
+  sleep 1
+done
+
 echo 'Saving admin access token'
 
 mkdir -p src/config
@@ -128,6 +158,28 @@ curl -fsS \
   > src/config/tuwunel_access_token.json
 
 chmod 600 src/config/tuwunel_access_token.json
+
+echo 'Checking administrator privileges'
+
+ADMIN_TOKEN=$(jq -r '.access_token' \
+  src/config/tuwunel_access_token.json)
+
+ADMIN_USER_ID=$(jq -r '.user_id' \
+  src/config/tuwunel_access_token.json)
+
+ENCODED_ADMIN_USER_ID=$(printf '%s' "$ADMIN_USER_ID" | jq -sRr @uri)
+
+ADMIN_CHECK=$(curl -fsS \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  "$HOMESERVER_URL/_synapse/admin/v1/users/$ENCODED_ADMIN_USER_ID/admin")
+
+if [ "$(printf '%s' "$ADMIN_CHECK" | jq -r '.admin')" != 'true' ]
+then
+  echo "User $ADMIN_USER_ID is not a Tuwunel administrator. Exiting."
+  exit 1
+fi
+
+echo "Administrator confirmed: $ADMIN_USER_ID"
 
 echo 'Removing log files'
 rm -f ./*.log
