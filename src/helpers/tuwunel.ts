@@ -68,14 +68,11 @@ export async function getUserSessionOptions(
 export async function getMatrixMembers(
   matrixRoomId: string
 ): Promise<string[]> {
-  return Object.keys(
-    (
-      await axios.get(
-        `/_synapse/admin/v1/rooms/${matrixRoomId}/members`,
-        formatUserSessionOptions(applicationServiceToken)
-      )
-    ).data.joined
+  const response = await axios.get(
+    `/_synapse/admin/v1/rooms/${matrixRoomId}/members`
   )
+
+  return response.data.members
 }
 
 let serverName: string
