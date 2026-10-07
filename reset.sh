@@ -6,10 +6,17 @@ set -a # automatically export all variables
 source .env
 set +a
 
-if [ -z "$SYNAPSE_URL" ]
+if [ -z "$HOMESERVER_URL" ]
 then
   # shellcheck disable=SC2016
-  echo 'Variable $SYNAPSE_URL is not set in .env. Exiting.'
+  echo 'Variable $HOMESERVER_URL is not set in .env. Exiting.'
+  exit 1
+fi
+
+if [ -z "$REGISTRATION_SHARED_SECRET" ]
+then
+  # shellcheck disable=SC2016
+  echo 'Variable $REGISTRATION_SHARED_SECRET is not set in .env. Exiting.'
   exit 1
 fi
 
@@ -19,29 +26,77 @@ then
   echo 'Variable $ADMIN_USERNAME is not set in .env. Exiting.'
   exit 1
 fi
+
+if [ -z "$ADMIN_PASSWORD" ]
+then
+  # shellcheck disable=SC2016
+  echo 'Variable $ADMIN_PASSWORD is not set in .env. Exiting.'
+  exit 1
+fi
+
 set -u
 
 echo 'Resetting containers and databases'
-docker compose down
-sudo rm -f files/homeserver.db
+docker compose down -v
 rm -f db.sqlite
+rm -f src/config/tuwunel_access_token.json
 docker compose up -d
 
-sleep 1.5
-echo 'Creating admin user'
-set +e
-until docker compose exec -it synapse register_new_matrix_user $SYNAPSE_URL -c /data/homeserver.yaml --admin --user $ADMIN_USERNAME --password $ADMIN_PASSWORD &> /dev/null
+echo 'Waiting for Tuwunel'
+until curl -fsS "$HOMESERVER_URL/_matrix/client/versions" > /dev/null
 do
-  echo 'Retrying creating admin...'
+  sleep 1
 done
-set -e
+
+echo 'Creating admin user'
+
+nonce=$(curl -fsS \
+  "$HOMESERVER_URL/_synapse/admin/v1/register" \
+  | jq -r '.nonce')
+
+mac=$(printf '%s\000%s\000%s\000admin' \
+  "$nonce" \
+  "$ADMIN_USERNAME" \
+  "$ADMIN_PASSWORD" \
+  | openssl dgst \
+      -sha1 \
+      -hmac "$REGISTRATION_SHARED_SECRET" \
+      -hex \
+  | awk '{print $2}')
+
+curl -fsS \
+  --request POST \
+  --url "$HOMESERVER_URL/_synapse/admin/v1/register" \
+  --header 'Content-Type: application/json' \
+  --data "$(jq -nc \
+    --arg nonce "$nonce" \
+    --arg username "$ADMIN_USERNAME" \
+    --arg password "$ADMIN_PASSWORD" \
+    --arg mac "$mac" \
+    '{
+      nonce: $nonce,
+      username: $username,
+      password: $password,
+      admin: true,
+      mac: $mac
+    }')" \
+  > /dev/null
 
 echo 'Saving admin access token'
-curl --request POST \
-  --url $SYNAPSE_URL/_matrix/client/v3/login \
+curl -fsS \
+  --request POST \
+  --url "$HOMESERVER_URL/_matrix/client/v3/login" \
   --header 'Content-Type: application/json' \
-  --data "{\"type\": \"m.login.password\",\"user\": \"$ADMIN_USERNAME\",\"password\": \"$ADMIN_PASSWORD\",\"device_id\": \"DEV\"}" \
-> src/config/synapse_access_token.json 2> /dev/null
+  --data "$(jq -nc \
+    --arg username "$ADMIN_USERNAME" \
+    --arg password "$ADMIN_PASSWORD" \
+    '{
+      type: "m.login.password",
+      user: $username,
+      password: $password,
+      device_id: "DEV"
+    }')" \
+  > src/config/tuwunel_access_token.json
 
 echo 'Removing log files'
 rm -f ./*.log
