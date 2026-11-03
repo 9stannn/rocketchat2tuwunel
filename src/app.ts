@@ -12,7 +12,10 @@ import { closeAllCryptoSessions } from './e2ee/session'
 import { handleDirectChats } from './handlers/directChats'
 import { handleE2EE } from './handlers/e2ee'
 import { handleRoomMemberships } from './handlers/handleRoomMemberships'
-import { handle as handleMessage } from './handlers/messages'
+import {
+  createEncryptedMessage,
+  handle as handleMessage,
+} from './handlers/messages'
 import { handlePinnedMessages } from './handlers/pinnedMessages'
 import { handle as handleRoom } from './handlers/rooms'
 import { handle as handleUser } from './handlers/users'
@@ -57,6 +60,11 @@ async function main() {
       // Fail before anything is migrated if the settings or the crypto
       // engine are unusable
       validateE2EEConfig()
+      // Never start an E2EE run with a messages handler that cannot encrypt
+      // (e.g. a partially updated checkout): it would send plaintext.
+      if (typeof createEncryptedMessage !== 'function') {
+        throw new Error('src/handlers/messages.ts does not support E2EE')
+      }
       loadSdk()
       log.info(
         'E2EE mode: rooms, messages and reactions will be end-to-end encrypted'
