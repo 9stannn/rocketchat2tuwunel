@@ -17,6 +17,8 @@ import {
   getServerName,
 } from '../helpers/tuwunel'
 import emojiMap from '../emojis.json'
+import { isE2EE } from '../e2ee/config'
+import { getCryptoSession } from '../e2ee/session'
 import { executeAndHandleMissingMember } from './rooms'
 
 const applicationServiceToken = process.env.AS_TOKEN || ''
@@ -195,11 +197,54 @@ export async function createMessage(
   ts: number,
   transactionId: string
 ): Promise<string> {
+  if (isE2EE()) {
+    return createEncryptedMessage(
+      matrixMessage,
+      room_id,
+      user_id,
+      ts,
+      transactionId
+    )
+  }
   return (
     await axios.put(
       `/_matrix/client/v3/rooms/${room_id}/send/m.room.message/${transactionId}?user_id=${user_id}&ts=${ts}`,
       matrixMessage,
       formatUserSessionOptions(applicationServiceToken)
+    )
+  ).data.event_id
+}
+
+/**
+ * E2EE mode: encrypt the message with the author's device, then send the
+ * m.room.encrypted event dated with the original timestamp. The plaintext is
+ * never sent to Tuwunel; any encryption error stops the migration.
+ * @param matrixMessage The Matrix event body to encrypt
+ * @param room_id The Matrix room, the message will be posted to
+ * @param user_id The user the message will be posted by
+ * @param ts The timestamp to which the message will be dated
+ * @param transactionId An unique identifier to distinguish identical messages
+ * @returns The Matrix Message/event ID
+ */
+export async function createEncryptedMessage(
+  matrixMessage: MatrixMessage,
+  room_id: string,
+  user_id: string,
+  ts: number,
+  transactionId: string
+): Promise<string> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { type, ...content } = matrixMessage
+  const session = await getCryptoSession(user_id)
+  const encrypted = await session.encrypt(room_id, 'm.room.message', content)
+  return (
+    await axios.put(
+      `/_matrix/client/v3/rooms/${encodeURIComponent(room_id)}/send/m.room.encrypted/${encodeURIComponent(transactionId)}`,
+      encrypted,
+      {
+        ...formatUserSessionOptions(applicationServiceToken),
+        params: { user_id, ts },
+      }
     )
   ).data.event_id
 }
@@ -248,20 +293,43 @@ export async function handleReactions(
           log.http(
             `Adding reaction to message ${matrixMessageId} with symbol ${reactionEmoji} for user ${rcUsername}`
           )
+          const reactionContent = {
+            'm.relates_to': {
+              rel_type: 'm.annotation',
+              event_id: matrixMessageId,
+              key: reactionEmoji,
+            },
+          }
           // put reaction
           try {
-            await executeAndHandleMissingMember(() =>
-              axios.put(
-                `/_matrix/client/v3/rooms/${matrixRoomId}/send/m.reaction/${transactionId}`,
-                {
-                  'm.relates_to': {
-                    rel_type: 'm.annotation',
-                    event_id: matrixMessageId,
-                    key: reactionEmoji,
-                  },
-                },
-                userSessionOptions
-              )
+            await executeAndHandleMissingMember(
+              async () => {
+                if (isE2EE()) {
+                  if (!userMapping.matrixId) {
+                    throw new Error(`No Matrix ID for user ${rcUsername}`)
+                  }
+                  const session = await getCryptoSession(userMapping.matrixId)
+                  const encrypted = await session.encrypt(
+                    matrixRoomId,
+                    'm.reaction',
+                    reactionContent
+                  )
+                  await axios.put(
+                    `/_matrix/client/v3/rooms/${encodeURIComponent(matrixRoomId)}/send/m.room.encrypted/${transactionId}`,
+                    encrypted,
+                    userSessionOptions
+                  )
+                } else {
+                  await axios.put(
+                    `/_matrix/client/v3/rooms/${matrixRoomId}/send/m.reaction/${transactionId}`,
+                    reactionContent,
+                    userSessionOptions
+                  )
+                }
+              },
+              userMapping.matrixId
+                ? { matrixUserId: userMapping.matrixId, matrixRoomId }
+                : undefined
             )
           } catch (error) {
             if (
@@ -350,8 +418,10 @@ export async function handle(rcMessage: RcMessage): Promise<void> {
       }
     }
   }
-  await executeAndHandleMissingMember(() =>
-    createEventsAndMapping(matrixMessage, room_id, user_id, ts, rcMessage)
+  await executeAndHandleMissingMember(
+    () =>
+      createEventsAndMapping(matrixMessage, room_id, user_id, ts, rcMessage),
+    { matrixUserId: user_id, matrixRoomId: room_id }
   )
 }
 
