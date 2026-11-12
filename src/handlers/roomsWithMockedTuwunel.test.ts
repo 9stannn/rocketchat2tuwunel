@@ -4,6 +4,7 @@ import {
   AxiosResponseHeaders,
   InternalAxiosRequestConfig,
 } from 'axios'
+import adminAccessToken from '../config/tuwunel_access_token.json'
 import { IdMapping } from '../entity/IdMapping'
 import log from '../helpers/logger'
 import * as storage from '../helpers/storage'
@@ -216,4 +217,59 @@ test('executeAndHandleMissingMember: Tuwunel auth error without hint is rethrown
       )
     })
   ).rejects.toBeInstanceOf(AxiosError)
+})
+
+test('executeAndHandleMissingMember: room created by an admin who is not a Rocket.Chat user', async () => {
+  mockedStorage.getMappingByMatrixId.mockReset()
+  mockedStorage.getMappingByMatrixId.mockImplementation(async (id: string) =>
+    id === adminAccessToken.user_id
+      ? null
+      : ({
+          rcId: 'RcMissing',
+          matrixId: '@MsMissing:matrix',
+          accessToken: 'mellon',
+        } as IdMapping)
+  )
+  mockedTuwunel.axios.get.mockResolvedValue({
+    data: { creator: adminAccessToken.user_id },
+  })
+  mockedTuwunel.axios.post.mockReset()
+  let calls = 0
+  await expect(
+    executeAndHandleMissingMember(async () => {
+      if (calls++ === 0) await axiosNotInRoomError()
+    })
+  ).resolves.toBeUndefined()
+  // The message is sent after the admin invited the sender back
+  expect(calls).toBe(2)
+  expect(mockedTuwunel.axios.post).toHaveBeenCalledWith(
+    '/_matrix/client/v3/rooms/!roomId/invite',
+    { user_id: '@MsMissing:matrix' },
+    {}
+  )
+})
+
+test('executeAndHandleMissingMember: skip if another room creator has no token', async () => {
+  mockedStorage.getMappingByMatrixId.mockReset()
+  mockedStorage.getMappingByMatrixId.mockImplementation(async (id: string) =>
+    id === '@deleted:matrix'
+      ? null
+      : ({
+          rcId: 'RcMissing',
+          matrixId: '@MsMissing:matrix',
+          accessToken: 'mellon',
+        } as IdMapping)
+  )
+  mockedTuwunel.axios.get.mockResolvedValue({
+    data: { creator: '@deleted:matrix' },
+  })
+  mockedTuwunel.axios.post.mockReset()
+  const warn = jest.spyOn(log, 'warn')
+  await expect(
+    executeAndHandleMissingMember(axiosNotInRoomError)
+  ).resolves.toBeUndefined()
+  expect(warn).toHaveBeenCalledWith(
+    'Could not get access token for @deleted:matrix, skipping.'
+  )
+  expect(mockedTuwunel.axios.post).not.toHaveBeenCalled()
 })

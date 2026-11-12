@@ -1,4 +1,5 @@
 import { AxiosError } from 'axios'
+import adminAccessToken from '../config/tuwunel_access_token.json'
 import { Entity, entities } from '../Entities'
 import { isE2EE } from '../e2ee/config'
 import { IdMapping } from '../entity/IdMapping'
@@ -495,13 +496,17 @@ export async function executeAndHandleMissingMember(
         )
       } else {
         const creatorMapping = await getMappingByMatrixId(roomCreatorId)
-        if (!creatorMapping?.accessToken) {
+        if (creatorMapping?.accessToken) {
+          userSessionOptions = formatUserSessionOptions(
+            creatorMapping.accessToken
+          )
+        } else if (roomCreatorId !== adminAccessToken.user_id) {
           log.warn(`Could not get access token for ${roomCreatorId}, skipping.`)
           return
         }
-        userSessionOptions = formatUserSessionOptions(
-          creatorMapping.accessToken
-        )
+        // Otherwise the admin created the room (its Rocket.Chat creator was
+        // not migrated) without being a Rocket.Chat user: their credentials
+        // are the default ones.
       }
 
       await addMember(userMapping, matrixRoomId, userSessionOptions)

@@ -1,8 +1,14 @@
 import { AxiosError } from 'axios'
 import lineByLine from 'n-readlines'
-import { entities } from '../Entities'
+import { Entity, entities } from '../Entities'
 import log from '../helpers/logger'
-import { getMappingByMatrixId, getRoomId } from '../helpers/storage'
+import {
+  getAllMappingsByType,
+  getMappingByMatrixId,
+  getRoomId,
+  getUserId,
+  getUserMappingByName,
+} from '../helpers/storage'
 import {
   axios,
   formatUserSessionOptions,
@@ -13,6 +19,21 @@ import { RcRoom, RcRoomTypes } from './rooms'
 export type DirectChats = { [key: string]: string[] }
 export type UserDirectChatMappings = {
   [key: string]: { [key: string]: string[] }
+}
+
+/**
+ * @param room A Rocket.Chat direct chat
+ * @returns The Matrix IDs of its migrated Rocket.Chat participants
+ */
+async function getParticipants(room: RcRoom): Promise<string[]> {
+  const matrixIds = room.uids?.length
+    ? await Promise.all([...new Set(room.uids)].map((uid) => getUserId(uid)))
+    : await Promise.all(
+        [...new Set(room.usernames ?? [])].map(
+          async (username) => (await getUserMappingByName(username))?.matrixId
+        )
+      )
+  return matrixIds.filter((matrixId): matrixId is string => !!matrixId)
 }
 
 /**
@@ -36,8 +57,14 @@ export async function getDirectChats(): Promise<DirectChats> {
         )
         continue
       }
-      const members = await getMatrixMembers(matrixRoomId)
-      
+      // Only its Rocket.Chat participants: the admin is also a member of the
+      // direct chats they had to create (creator not migrated), and users
+      // who were added to post a message are removed later.
+      const participants = await getParticipants(room)
+      const members = (await getMatrixMembers(matrixRoomId)).filter((member) =>
+        participants.includes(member)
+      )
+
       if ((room.usernames?.length ?? 0) > 1 && members.length < 2) {
         log.warn(
           `Direct chat ${room._id} lost one or more members during migration, skipping.`
@@ -99,8 +126,25 @@ export function parseDirectChats(
 }
 
 /**
+ * @param directChats A m.direct setting
+ * @returns true if every room it lists was created by this migration
+ */
+async function onlyListsMigratedRooms(directChats: object): Promise<boolean> {
+  for (const roomIds of Object.values(directChats)) {
+    if (!Array.isArray(roomIds)) return false
+    for (const roomId of roomIds) {
+      const mapping = await getMappingByMatrixId(roomId)
+      if (mapping?.type !== entities[Entity.Rooms].mappingType) return false
+    }
+  }
+  return true
+}
+
+/**
  * Sets the m.direct settings for users.
- * If the calculated direct chats differ from any already set ones, it is not changed, but the difference is logged.
+ * An existing setting that differs is replaced only if it lists nothing but
+ * migrated rooms, i.e. it was written by an earlier, interrupted run of the
+ * migration; otherwise it is kept and the difference is logged.
  * @param userDirectChatMappings An object containing users and their direct chat connections, to be set in tuwunel
  */
 export async function setDirectChats(
@@ -114,36 +158,24 @@ export async function setDirectChats(
 
   // Iterate over all users
   for (const [user, chats] of Object.entries(userDirectChatMappings)) {
-    const userSessionOptions = formatUserSessionOptions(
-      (await getMappingByMatrixId(user))?.accessToken || ''
-    )
+    const accessToken = (await getMappingByMatrixId(user))?.accessToken
+    if (!accessToken) {
+      log.warn(
+        `User ${user} has no access token, skipping their direct chat settings.`
+      )
+      continue
+    }
+    const userSessionOptions = formatUserSessionOptions(accessToken)
 
     // Check if direct chats are already set
-    let settingExists = false
+    let currentDirectChats: object | undefined
     try {
-      const currentDirectChats = (
+      currentDirectChats = (
         await axios.get(
           `/_matrix/client/v3/user/${user}/account_data/m.direct`,
           userSessionOptions
         )
       ).data
-
-      settingExists =
-        currentDirectChats && Object.keys(currentDirectChats).length > 0
-
-      if (settingExists) {
-        if (JSON.stringify(currentDirectChats) !== JSON.stringify(chats)) {
-          // If chats are already set, but different, log the difference
-          log.debug(`User ${user} already has a different direct chat setting.`)
-          log.debug('Expected:', chats)
-          log.debug('Actual:', currentDirectChats)
-        } else {
-          // If chats are already set, but equal, log it
-          log.debug(
-            `User ${user} already has the expected direct chats configured, skipping.`
-          )
-        }
-      }
     } catch (error) {
       // Catch errors if setting does not exist, yet
       if (
@@ -156,8 +188,11 @@ export async function setDirectChats(
         throw error
       }
     }
+    const settingExists =
+      !!currentDirectChats && Object.keys(currentDirectChats).length > 0
 
     if (!settingExists) {
+      if (Object.keys(chats).length === 0) continue
       // Set direct chats if there are non set, yet
       await axios.put(
         `/_matrix/client/v3/user/${user}/account_data/m.direct`,
@@ -169,6 +204,25 @@ export async function setDirectChats(
           Object.keys(chats).length
         } chats as direct chats for user ${user}`
       )
+    } else if (JSON.stringify(currentDirectChats) === JSON.stringify(chats)) {
+      // If chats are already set, but equal, log it
+      log.debug(
+        `User ${user} already has the expected direct chats configured, skipping.`
+      )
+    } else if (await onlyListsMigratedRooms(currentDirectChats!)) {
+      await axios.put(
+        `/_matrix/client/v3/user/${user}/account_data/m.direct`,
+        chats,
+        userSessionOptions
+      )
+      log.info(
+        `Direct chat setting of ${user}, written by an earlier run, corrected`
+      )
+    } else {
+      // If chats are already set, but different, log the difference
+      log.debug(`User ${user} already has a different direct chat setting.`)
+      log.debug('Expected:', chats)
+      log.debug('Actual:', currentDirectChats)
     }
   }
 }
@@ -179,5 +233,14 @@ export async function setDirectChats(
 export async function handleDirectChats() {
   const directChats = await getDirectChats()
   const userDirectChatMappings = parseDirectChats(directChats)
+  // Users who have no direct chat (left): an interrupted run may have given
+  // them a wrong setting, to be cleared
+  for (const mapping of await getAllMappingsByType(
+    entities[Entity.Users].mappingType
+  )) {
+    if (mapping.matrixId && !userDirectChatMappings[mapping.matrixId]) {
+      userDirectChatMappings[mapping.matrixId] = {}
+    }
+  }
   await setDirectChats(userDirectChatMappings)
 }
