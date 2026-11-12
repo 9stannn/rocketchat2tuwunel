@@ -12,6 +12,7 @@ import {
   handleReactions,
   mapMessage,
   mapTextMessage,
+  splitLongMessage,
 } from './messages'
 import * as tuwunel from '../helpers/tuwunel'
 
@@ -329,3 +330,74 @@ test('parse mentions', async () => {
 })
 
 test.todo('parse messages mentioning @all, @here and individuals')
+
+const bytes = (value: unknown) =>
+  Buffer.byteLength(JSON.stringify(value), 'utf8')
+
+test('splitLongMessage keeps a message that fits', () => {
+  const content = { msgtype: 'm.text', body: 'court' }
+  expect(splitLongMessage(content, 1000)).toStrictEqual([content])
+  expect(splitLongMessage(content, 1000)[0]).toBe(content)
+})
+
+test('splitLongMessage drops the HTML version first', () => {
+  const content = {
+    msgtype: 'm.text',
+    body: 'x'.repeat(600),
+    format: 'org.matrix.custom.html',
+    formatted_body: `<p>${'x'.repeat(600)}</p>`,
+  }
+  expect(splitLongMessage(content, 1000)).toStrictEqual([
+    { msgtype: 'm.text', body: 'x'.repeat(600) },
+  ])
+})
+
+test('splitLongMessage splits long text without losing anything', () => {
+  const line = 'Ligne avec accents éàü et émoji 🎉 "guillemets" \\ fin\n'
+  const body = line.repeat(2000)
+  const content = {
+    msgtype: 'm.text',
+    body,
+    format: 'org.matrix.custom.html',
+    formatted_body: `<p>${body}</p>`,
+    'm.mentions': { user_ids: ['@a:server'] },
+    'm.relates_to': { rel_type: 'm.thread', event_id: '$root' },
+  }
+  const parts = splitLongMessage(content, 30000)
+  expect(parts.length).toBeGreaterThan(1)
+  const rebuilt = parts
+    .map((part, index) => {
+      const prefix = `[${index + 1}/${parts.length}] `
+      expect(String(part.body).startsWith(prefix)).toBe(true)
+      return String(part.body).slice(prefix.length)
+    })
+    .join('')
+  expect(rebuilt).toBe(body)
+  for (const [index, part] of parts.entries()) {
+    expect(bytes(part)).toBeLessThanOrEqual(30000)
+    expect(part['m.relates_to']).toStrictEqual(content['m.relates_to'])
+    expect('m.mentions' in part).toBe(index === 0)
+    expect('formatted_body' in part).toBe(false)
+    // cut at line breaks, and never in the middle of an emoji
+    if (index < parts.length - 1) {
+      expect(String(part.body).endsWith('\n')).toBe(true)
+    }
+    expect(String(part.body)).not.toMatch(/[\ud800-\udbff]$/)
+  }
+})
+
+test('splitLongMessage splits text without line breaks', () => {
+  const body = '🎉'.repeat(20000)
+  const parts = splitLongMessage({ msgtype: 'm.text', body }, 5000)
+  expect(parts.length).toBeGreaterThan(1)
+  expect(
+    parts
+      .map((part, index) =>
+        String(part.body).slice(`[${index + 1}/${parts.length}] `.length)
+      )
+      .join('')
+  ).toBe(body)
+  for (const part of parts) {
+    expect(bytes(part)).toBeLessThanOrEqual(5000)
+  }
+})

@@ -206,13 +206,123 @@ export async function createMessage(
       transactionId
     )
   }
-  return (
-    await axios.put(
-      `/_matrix/client/v3/rooms/${room_id}/send/m.room.message/${transactionId}?user_id=${user_id}&ts=${ts}`,
-      matrixMessage,
-      formatUserSessionOptions(applicationServiceToken)
+  const parts = splitLongMessage(matrixMessage, MAX_PLAIN_CONTENT_BYTES)
+  logSplit(transactionId, matrixMessage, parts)
+  let firstEventId = ''
+  for (const [index, part] of parts.entries()) {
+    const eventId = (
+      await axios.put(
+        `/_matrix/client/v3/rooms/${room_id}/send/m.room.message/${partTransactionId(transactionId, index)}?user_id=${user_id}&ts=${ts + index}`,
+        part,
+        formatUserSessionOptions(applicationServiceToken)
+      )
+    ).data.event_id
+    firstEventId ||= eventId
+  }
+  return firstEventId
+}
+
+/**
+ * Matrix limits a whole event to 65535 bytes. An encrypted event carries its
+ * content encrypted and base64 encoded (one third bigger), plus keys and
+ * signatures: the plaintext content of one event is kept well below.
+ */
+export const MAX_ENCRYPTED_CONTENT_BYTES = 30000
+export const MAX_PLAIN_CONTENT_BYTES = 50000
+
+/**
+ * @param value Any JSON value
+ * @returns Its size once serialised, in bytes
+ */
+function jsonBytes(value: unknown): number {
+  return Buffer.byteLength(JSON.stringify(value), 'utf8')
+}
+
+/**
+ * Make a message fit in Matrix events: first without its HTML version, then
+ * split into parts ("[1/3] …") cut preferably at line breaks. Every part keeps
+ * the relations (thread); the mentions stay on the first part.
+ * @param content The message event content
+ * @param maxBytes The maximum serialised size of one part
+ * @returns The contents to send, in order (the content itself if it fits)
+ */
+export function splitLongMessage<T extends Record<string, unknown>>(
+  content: T,
+  maxBytes: number
+): Array<Record<string, unknown>> {
+  if (jsonBytes(content) <= maxBytes) {
+    return [content]
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { format, formatted_body, ...plain } = content
+  if (jsonBytes(plain) <= maxBytes) {
+    return [plain]
+  }
+
+  const { body, 'm.mentions': mentions, ...rest } = plain
+  const budget =
+    maxBytes -
+    jsonBytes({ ...rest, body: '[9999/9999] ', 'm.mentions': mentions }) -
+    16
+  const parts: string[] = []
+  let remaining = String(body ?? '')
+  while (remaining.length > 0) {
+    let size = Math.min(remaining.length, budget)
+    while (size > 1 && jsonBytes(remaining.slice(0, size)) > budget) {
+      size = Math.floor(size * 0.9)
+    }
+    if (size < remaining.length) {
+      const lineBreak = remaining.lastIndexOf('\n', size - 1)
+      if (lineBreak >= size * 0.8) {
+        size = lineBreak + 1
+      }
+      // never cut an emoji (UTF-16 surrogate pair) in two
+      const code = remaining.charCodeAt(size - 1)
+      if (code >= 0xd800 && code <= 0xdbff) {
+        size--
+      }
+    }
+    parts.push(remaining.slice(0, size))
+    remaining = remaining.slice(size)
+  }
+
+  return parts.map((part, index) => ({
+    ...rest,
+    body: `[${index + 1}/${parts.length}] ${part}`,
+    ...(index === 0 && mentions ? { 'm.mentions': mentions } : {}),
+  }))
+}
+
+/**
+ * @param transactionId The transaction ID of the message
+ * @param index The index of the part
+ * @returns A transaction ID unique to this part
+ */
+function partTransactionId(transactionId: string, index: number): string {
+  return index === 0 ? transactionId : `${transactionId}.${index + 1}`
+}
+
+/**
+ * Log what was done to a message too long for one Matrix event
+ * @param transactionId The message transaction ID
+ * @param original The original content
+ * @param parts The contents that will be sent
+ */
+function logSplit(
+  transactionId: string,
+  original: Record<string, unknown>,
+  parts: Array<Record<string, unknown>>
+): void {
+  if (parts.length > 1) {
+    log.warn(
+      `Message ${transactionId} is too long for one Matrix event, sent in ${parts.length} parts`
     )
-  ).data.event_id
+  } else if (parts[0] !== original) {
+    log.warn(
+      `Message ${transactionId} is too long with its formatting, sent as plain text`
+    )
+  }
 }
 
 /**
@@ -236,17 +346,25 @@ export async function createEncryptedMessage(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { type, ...content } = matrixMessage
   const session = await getCryptoSession(user_id)
-  const encrypted = await session.encrypt(room_id, 'm.room.message', content)
-  return (
-    await axios.put(
-      `/_matrix/client/v3/rooms/${encodeURIComponent(room_id)}/send/m.room.encrypted/${encodeURIComponent(transactionId)}`,
-      encrypted,
-      {
-        ...formatUserSessionOptions(applicationServiceToken),
-        params: { user_id, ts },
-      }
-    )
-  ).data.event_id
+  const parts = splitLongMessage(content, MAX_ENCRYPTED_CONTENT_BYTES)
+  logSplit(transactionId, content, parts)
+  let firstEventId = ''
+  for (const [index, part] of parts.entries()) {
+    const encrypted = await session.encrypt(room_id, 'm.room.message', part)
+    const eventId = (
+      await axios.put(
+        `/_matrix/client/v3/rooms/${encodeURIComponent(room_id)}/send/m.room.encrypted/${encodeURIComponent(partTransactionId(transactionId, index))}`,
+        encrypted,
+        {
+          ...formatUserSessionOptions(applicationServiceToken),
+          // parts keep their order: one millisecond apart
+          params: { user_id, ts: ts + index },
+        }
+      )
+    ).data.event_id
+    firstEventId ||= eventId
+  }
+  return firstEventId
 }
 
 /**
