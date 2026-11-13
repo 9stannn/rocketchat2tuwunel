@@ -235,9 +235,21 @@ mongoexport \
   --out=users.json
 ```
 
+Optionally, export the room owners and moderators too. Without this file, only the creator of each room gets its admin rights:
+
+```shell
+mongoexport \
+  --collection=rocketchat_subscription \
+  --db=rocketchat \
+  --query='{"roles": {"$in": ["owner", "moderator"]}}' \
+  --out=rocketchat_subscription.json
+```
+
+With it, an owner creates each room (in room versions 12 and later, the creator keeps unlimited power over the room), the other owners get the power level 100 and the moderators 50. When the admin has to create a room (no owner was migrated) and leaves it at the end of an E2EE migration, its admin rights go to a moderator, else to a member listed in `SERVER_ADMINS`.
+
 If the Rocket.Chat MongoDB instance requires authentication, a replica set or a custom connection string, use `mongoexport --uri=...` instead.
 
-Copy the three files into:
+Copy the files into:
 
 ```text
 inputs/
@@ -249,8 +261,14 @@ The directory must contain:
 inputs/
 ├── rocketchat_message.json
 ├── rocketchat_room.json
+├── rocketchat_subscription.json   (optional)
 └── users.json
 ```
+
+Two optional settings of `.env`:
+
+- `SERVER_ADMINS='jdupont,mmartin'`: these migrated Rocket.Chat users (or existing Matrix accounts, as `@user:server`) are made Tuwunel server administrators right after the users are created, and they are the only ones besides `ADMIN_USERNAME`: the Rocket.Chat administrators are not made server administrators any more, and a migrated user who is one without being listed loses this status. `SERVER_ADMINS=''` leaves `ADMIN_USERNAME` alone. When it is not set, the Rocket.Chat administrators become server administrators, as before. An unknown entry stops the migration before any room is created. Set it before the first run: the members it lists may also receive the admin rights of the rooms the admin leaves (see above).
+- `SKIP_EMPTY_ROOMS=true`: rooms without any message to migrate (no message, only system messages, or only messages of users who are not migrated), or without any migrated member, are not created.
 
 ### Preparing a Fresh Tuwunel Instance
 

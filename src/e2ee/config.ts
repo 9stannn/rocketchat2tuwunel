@@ -8,6 +8,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { dirname, parse, relative, resolve } from 'node:path'
+import { booleanSetting } from '../helpers/settings'
 
 /**
  * Settings of the end-to-end encrypted (E2EE) migration mode.
@@ -17,26 +18,6 @@ import { dirname, parse, relative, resolve } from 'node:path'
  * sent to Tuwunel, and every migrated user gets a key backup protected by a
  * personal recovery key. No plaintext message is ever sent in this mode.
  */
-
-const TRUE_VALUES = ['1', 'true', 'yes', 'on']
-const FALSE_VALUES = ['', '0', 'false', 'no', 'off']
-
-/**
- * Parse a boolean setting, refusing ambiguous values
- * @param name The environment variable
- * @param fallback The value when the variable is not set
- * @returns The boolean value
- */
-function booleanSetting(name: string, fallback: boolean): boolean {
-  const raw = process.env[name]
-  if (raw === undefined) {
-    return fallback
-  }
-  const value = raw.trim().toLowerCase()
-  if (TRUE_VALUES.includes(value)) return true
-  if (FALSE_VALUES.includes(value)) return false
-  throw new Error(`${name}='${raw}' is not a valid value: use true or false`)
-}
 
 /**
  * @returns true if the E2EE migration mode is enabled in the environment

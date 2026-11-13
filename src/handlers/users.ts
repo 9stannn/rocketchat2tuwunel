@@ -4,6 +4,7 @@ import adminAccessToken from '../config/tuwunel_access_token.json'
 import { isE2EE } from '../e2ee/config'
 import { IdMapping } from '../entity/IdMapping'
 import log from '../helpers/logger'
+import { serverAdminsListed } from '../helpers/settings'
 import { createMembership, getUserId, save } from '../helpers/storage'
 import { axios } from '../helpers/tuwunel'
 
@@ -39,7 +40,8 @@ export function mapUser(rcUser: RcUser): MatrixUser {
     username: rcUser.username,
     displayname: rcUser.name,
     password: randomBytes(32).toString('base64url'),
-    admin: rcUser.roles.includes('admin'),
+    // With SERVER_ADMINS, the listed users are made admins once created
+    admin: !serverAdminsListed() && rcUser.roles.includes('admin'),
   }
 }
 
@@ -157,6 +159,11 @@ export async function createUser(rcUser: RcUser): Promise<MatrixUser> {
   user.user_id = accessToken.user_id
   user.access_token = accessToken.access_token
   log.info(`User ${rcUser.username} created: ${user.user_id}`)
+  if (user.admin) {
+    log.warn(
+      `User ${rcUser.username} is a Rocket.Chat admin, so a Tuwunel server administrator: list the server administrators in SERVER_ADMINS to choose them`
+    )
+  }
 
   await parseUserMemberships(rcUser)
 

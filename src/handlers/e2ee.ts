@@ -21,7 +21,13 @@ import {
 } from '../e2ee/recovery'
 import { closeAllCryptoSessions, getCryptoSession } from '../e2ee/session'
 import log from '../helpers/logger'
-import { getAllMappingsByType } from '../helpers/storage'
+import {
+  getRoomRoles,
+  isDirectChat,
+  roomRolesLoaded,
+} from '../helpers/roomRoles'
+import { getServerAdmins } from '../helpers/serverAdmins'
+import { getAllMappingsByType, getUserId } from '../helpers/storage'
 import { axios } from '../helpers/tuwunel'
 
 /**
@@ -40,11 +46,35 @@ async function getMigratedUsers(): Promise<Map<string, string>> {
 }
 
 /**
+ * Choose who gets the room admin rights when the admin leaves a room it
+ * created: a migrated Rocket.Chat owner, else a moderator, else a member
+ * listed in SERVER_ADMINS. A direct chat goes to its participant. Without
+ * the export of the room roles, the first member is chosen.
+ * @param room The scanned room
+ * @returns The Matrix ID of the heir, or undefined if nobody fits
+ */
+export async function chooseHeir(
+  room: ScannedRoom
+): Promise<string | undefined> {
+  const adminId = adminAccessToken.user_id
+  const candidates = room.joined.filter(
+    (userId) => userId !== adminId && room.members.has(userId)
+  )
+  if (isDirectChat(room.rcRoomId) || !roomRolesLoaded()) return candidates[0]
+  const { owners, moderators } = getRoomRoles(room.rcRoomId)
+  for (const rcUserId of [...owners, ...moderators]) {
+    const userId = await getUserId(rcUserId)
+    if (userId && candidates.includes(userId)) return userId
+  }
+  return getServerAdmins().find((userId) => candidates.includes(userId))
+}
+
+/**
  * The admin creates the rooms whose Rocket.Chat creator is unknown or not
  * migrated, and stays in them. In E2EE mode they must not stay in rooms they
  * were not a member of in Rocket.Chat: their devices would receive the keys
  * of every future message there. Their room admin rights are handed over to a
- * member first.
+ * member first (see chooseHeir).
  * @param rooms The scanned migrated rooms (their `joined` list is updated)
  */
 async function removeAdminFromForeignRooms(
@@ -53,13 +83,15 @@ async function removeAdminFromForeignRooms(
   const adminId = adminAccessToken.user_id
   for (const room of rooms) {
     if (!room.joined.includes(adminId) || room.members.has(adminId)) continue
-    const heir = room.joined.find(
-      (userId) => userId !== adminId && room.members.has(userId)
-    )
+    const heir = await chooseHeir(room)
     if (heir) {
       await axios.post(
         `/_synapse/admin/v1/rooms/${enc(room.roomId)}/make_room_admin`,
         { user_id: heir }
+      )
+    } else {
+      log.warn(
+        `E2EE: room ${room.roomId} (${room.rcRoomId}) has no migrated owner, moderator or SERVER_ADMINS member: nobody gets its admin rights`
       )
     }
     await axios.post(`/_matrix/client/v3/rooms/${enc(room.roomId)}/leave`, {})

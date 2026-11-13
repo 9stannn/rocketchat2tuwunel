@@ -3,13 +3,21 @@ import adminAccessToken from '../config/tuwunel_access_token.json'
 import { Entity, entities } from '../Entities'
 import { isE2EE } from '../e2ee/config'
 import { IdMapping } from '../entity/IdMapping'
+import { whyEmpty } from '../helpers/emptyRooms'
 import log from '../helpers/logger'
+import {
+  getRoomRoles,
+  rememberDirectChat,
+  roomRolesLoaded,
+} from '../helpers/roomRoles'
+import { shouldSkipEmptyRooms } from '../helpers/settings'
 import {
   createMembership,
   getMapping,
   getMappingByMatrixId,
   getMemberships,
   getRoomId,
+  getUserId,
   save,
 } from '../helpers/storage'
 import {
@@ -172,6 +180,79 @@ export function getCreator(rcRoom: RcRoom): string {
     )
     return ''
   }
+}
+
+/**
+ * Choose the Rocket.Chat user who creates the Matrix room. With room versions
+ * 12 and later, the creator keeps unlimited power over the room, so it is
+ * one of the room's Rocket.Chat owners when they are known: its Rocket.Chat
+ * creator if they are still an owner, else the first owner by username.
+ * @param rcRoom The Rocket.Chat room
+ * @returns The Rocket.Chat ID of the creator, or an empty string for the admin
+ */
+export async function chooseCreator(rcRoom: RcRoom): Promise<string> {
+  if (rcRoom.t !== RcRoomTypes.direct && roomRolesLoaded()) {
+    const { owners } = getRoomRoles(rcRoom._id)
+    if (owners.length > 0) {
+      const creatorId = rcRoom.u?._id
+      const candidates =
+        creatorId && owners.includes(creatorId)
+          ? [creatorId, ...owners.filter((owner) => owner !== creatorId)]
+          : owners
+      for (const owner of candidates) {
+        if (await getUserId(owner)) return owner
+      }
+      log.warn(
+        `No owner of room ${rcRoom.name || rcRoom._id} was migrated, the admin creates it.`
+      )
+      return ''
+    }
+  }
+  return getCreator(rcRoom)
+}
+
+/**
+ * Give the migrated Rocket.Chat owners of a room the power level 100 and its
+ * moderators 50, as the room creator, before anyone is invited
+ * @param rcRoom The Rocket.Chat room
+ * @param roomId The Matrix room ID
+ * @param creatorUserId The Matrix ID of the room creator, who keeps their power
+ * @param creatorSessionOptions The credentials of the room creator
+ */
+export async function applyRoomRoles(
+  rcRoom: RcRoom,
+  roomId: string,
+  creatorUserId: string,
+  creatorSessionOptions: SessionOptions | object
+): Promise<void> {
+  if (rcRoom.t === RcRoomTypes.direct || !roomRolesLoaded()) return
+  const { owners, moderators } = getRoomRoles(rcRoom._id)
+  const levels = new Map<string, number>()
+  for (const [rcUserIds, level] of [
+    [moderators, 50],
+    [owners, 100],
+  ] as const) {
+    for (const rcUserId of rcUserIds) {
+      const userId = await getUserId(rcUserId)
+      // Room versions >= 12 refuse the creator in the power levels
+      if (userId && userId !== creatorUserId) levels.set(userId, level)
+    }
+  }
+  if (levels.size === 0) return
+
+  const path = `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/m.room.power_levels/`
+  const powerLevels = (await axios.get(path, creatorSessionOptions)).data
+  const users: Record<string, number> = { ...(powerLevels.users ?? {}) }
+  for (const [userId, level] of levels) {
+    if ((users[userId] ?? powerLevels.users_default ?? 0) < level) {
+      users[userId] = level
+    }
+  }
+  await axios.put(path, { ...powerLevels, users }, creatorSessionOptions)
+  log.info(
+    `Power levels of the owners and moderators of room ${rcRoom.name || rcRoom._id}:`,
+    Object.fromEntries(levels)
+  )
 }
 
 /**
@@ -377,7 +458,7 @@ export async function assertRoomEncrypted(
  */
 export async function createRoom(rcRoom: RcRoom): Promise<MatrixRoom> {
   const room: MatrixRoom = mapRoom(rcRoom)
-  const creatorId = getCreator(rcRoom)
+  const creatorId = await chooseCreator(rcRoom)
   await createDirectChatMemberships(rcRoom)
   const creatorSessionOptions = await getCreatorSessionOptions(creatorId)
   log.debug('Creating room:', room)
@@ -386,6 +467,16 @@ export async function createRoom(rcRoom: RcRoom): Promise<MatrixRoom> {
   if (isE2EE()) {
     await assertRoomEncrypted(room.room_id, creatorSessionOptions)
   }
+  const creatorUserId =
+    Object.keys(creatorSessionOptions).length > 0
+      ? (await getUserId(creatorId)) || adminAccessToken.user_id
+      : adminAccessToken.user_id
+  await applyRoomRoles(
+    rcRoom,
+    room.room_id,
+    creatorUserId,
+    creatorSessionOptions
+  )
 
   await handleMemberships(rcRoom._id, room, creatorId, creatorSessionOptions)
 
@@ -523,12 +614,32 @@ export async function executeAndHandleMissingMember(
  */
 export async function handle(rcRoom: RcRoom): Promise<void> {
   log.info(`Parsing room ${rcRoom.name || 'with ID: ' + rcRoom._id}`)
+  if (rcRoom.t === RcRoomTypes.direct) rememberDirectChat(rcRoom._id)
 
   const matrixRoomId = await getRoomId(rcRoom._id)
   if (matrixRoomId) {
     log.debug(`Mapping exists: ${rcRoom._id} -> ${matrixRoomId}`)
-  } else {
-    const matrixRoom = await createRoom(rcRoom)
-    await createMapping(rcRoom._id, matrixRoom.room_id!)
+    return
   }
+  if (shouldSkipEmptyRooms()) {
+    const reason = await whyEmpty(rcRoom)
+    if (reason) {
+      emptyRoomsSkipped++
+      log.info(
+        `Room ${rcRoom.name || rcRoom._id} is empty (${reason}), not created.`
+      )
+      return
+    }
+  }
+  const matrixRoom = await createRoom(rcRoom)
+  await createMapping(rcRoom._id, matrixRoom.room_id!)
+}
+
+let emptyRoomsSkipped = 0
+
+/**
+ * @returns The number of empty rooms left out by this run (SKIP_EMPTY_ROOMS)
+ */
+export function getEmptyRoomsSkipped(): number {
+  return emptyRoomsSkipped
 }

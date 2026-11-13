@@ -17,9 +17,13 @@ import {
   handle as handleMessage,
 } from './handlers/messages'
 import { handlePinnedMessages } from './handlers/pinnedMessages'
-import { handle as handleRoom } from './handlers/rooms'
+import { getEmptyRoomsSkipped, handle as handleRoom } from './handlers/rooms'
 import { handle as handleUser } from './handlers/users'
+import { scanRoomActivity } from './helpers/emptyRooms'
 import log from './helpers/logger'
+import { SUBSCRIPTIONS_FILE, loadRoomRoles } from './helpers/roomRoles'
+import { grantServerAdmins } from './helpers/serverAdmins'
+import { shouldSkipEmptyRooms } from './helpers/settings'
 import { initStorage } from './helpers/storage'
 import { checkAppserviceNamespace, whoami } from './helpers/tuwunel'
 
@@ -56,6 +60,8 @@ async function loadRcExport(entity: Entity) {
 
 async function main() {
   try {
+    // Fail before anything is migrated on an invalid value
+    shouldSkipEmptyRooms()
     if (isE2EE()) {
       // Fail before anything is migrated if the settings or the crypto
       // engine are unusable
@@ -81,8 +87,21 @@ async function main() {
     log.info('Parsing users')
     await loadRcExport(Entity.Users)
     await checkAppserviceNamespace()
+    await grantServerAdmins()
+    if (!loadRoomRoles()) {
+      log.warn(
+        `inputs/${SUBSCRIPTIONS_FILE} not found: the Rocket.Chat room owners and moderators are not migrated, only the room creators get admin rights`
+      )
+    }
+    if (shouldSkipEmptyRooms()) {
+      log.info('Looking for empty rooms')
+      await scanRoomActivity()
+    }
     log.info('Parsing rooms')
     await loadRcExport(Entity.Rooms)
+    if (shouldSkipEmptyRooms()) {
+      log.info(`${getEmptyRoomsSkipped()} empty room(s) not created`)
+    }
     log.info('Parsing messages')
     await loadRcExport(Entity.Messages)
     log.info('Setting direct chats to be displayed as such for each user')

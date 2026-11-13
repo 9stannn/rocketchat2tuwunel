@@ -57,6 +57,17 @@ test('mapping users', () => {
   expect(mappedUser.password).toMatch(/^[A-Za-z0-9_-]{43}$/)
 })
 
+test('Rocket.Chat admins are server admins unless SERVER_ADMINS is set', () => {
+  const rcAdmin: RcUser = { ...rcUser, roles: ['user', 'admin'] }
+  expect(mapUser(rcAdmin).admin).toBe(true)
+  process.env.SERVER_ADMINS = ''
+  try {
+    expect(mapUser(rcAdmin).admin).toBe(false)
+  } finally {
+    delete process.env.SERVER_ADMINS
+  }
+})
+
 test('generating correct hmac', () => {
   expect(generateHmac({ ...matrixUser, nonce })).toStrictEqual(mac)
 })
@@ -88,9 +99,7 @@ test('creating users', async () => {
 
   expect(createdUser.password).toMatch(/^[A-Za-z0-9_-]{43}$/)
 
-  expect(mockedAxios.get).toHaveBeenCalledWith(
-    '/_synapse/admin/v1/register'
-  )
+  expect(mockedAxios.get).toHaveBeenCalledWith('/_synapse/admin/v1/register')
 
   expect(mockedAxios.post).toHaveBeenCalledWith(
     '/_synapse/admin/v1/register',
