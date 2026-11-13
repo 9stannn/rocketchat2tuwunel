@@ -11,6 +11,7 @@ import { loadSdk } from './e2ee/sdk'
 import { closeAllCryptoSessions } from './e2ee/session'
 import { handleDirectChats } from './handlers/directChats'
 import { handleE2EE } from './handlers/e2ee'
+import { handleFavorites } from './handlers/favorites'
 import { handleRoomMemberships } from './handlers/handleRoomMemberships'
 import {
   createEncryptedMessage,
@@ -18,6 +19,7 @@ import {
 } from './handlers/messages'
 import { handlePinnedMessages } from './handlers/pinnedMessages'
 import { getEmptyRoomsSkipped, handle as handleRoom } from './handlers/rooms'
+import { handleSpaces } from './handlers/spaces'
 import { handle as handleUser } from './handlers/users'
 import { scanRoomActivity } from './helpers/emptyRooms'
 import log from './helpers/logger'
@@ -110,6 +112,8 @@ async function main() {
     await handlePinnedMessages()
     log.info('Checking room memberships and setting read status')
     await handleRoomMemberships()
+    await handleSpaces()
+    await handleFavorites()
     if (isE2EE()) {
       log.info('Preparing the recovery of the encrypted history')
       await handleE2EE()

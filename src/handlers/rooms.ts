@@ -53,6 +53,9 @@ export type RcRoom = {
   topic?: string
   fname?: string
   description?: string
+  teamId?: string // the team the room belongs to
+  teamMain?: boolean // the main room of the team
+  teamDefault?: boolean // joined automatically by new team members
 }
 
 /**
@@ -243,11 +246,15 @@ export async function applyRoomRoles(
   const path = `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/m.room.power_levels/`
   const powerLevels = (await axios.get(path, creatorSessionOptions)).data
   const users: Record<string, number> = { ...(powerLevels.users ?? {}) }
+  let changed = false
   for (const [userId, level] of levels) {
     if ((users[userId] ?? powerLevels.users_default ?? 0) < level) {
       users[userId] = level
+      changed = true
     }
   }
+  // Set already, e.g. by an earlier run
+  if (!changed) return
   await axios.put(path, { ...powerLevels, users }, creatorSessionOptions)
   log.info(
     `Power levels of the owners and moderators of room ${rcRoom.name || rcRoom._id}:`,

@@ -235,15 +235,17 @@ mongoexport \
   --out=users.json
 ```
 
-Optionally, export the room owners and moderators too. Without this file, only the creator of each room gets its admin rights:
+Optionally, export the room owners, moderators and favorites too. Without this file, only the creator of each room gets its admin rights, and favorites are not migrated:
 
 ```shell
 mongoexport \
   --collection=rocketchat_subscription \
   --db=rocketchat \
-  --query='{"roles": {"$in": ["owner", "moderator"]}}' \
+  --query='{"$or": [{"f": true}, {"roles": {"$in": ["owner", "moderator"]}}]}' \
   --out=rocketchat_subscription.json
 ```
+
+The rooms a user marked as favorites get Element's "Favourites" tag (`m.favourite`), private to that user.
 
 With it, an owner creates each room (in room versions 12 and later, the creator keeps unlimited power over the room), the other owners get the power level 100 and the moderators 50. When the admin has to create a room (no owner was migrated) and leaves it at the end of an E2EE migration, its admin rights go to a moderator, else to a member listed in `SERVER_ADMINS`.
 
@@ -269,6 +271,8 @@ Two optional settings of `.env`:
 
 - `SERVER_ADMINS='jdupont,mmartin'`: these migrated Rocket.Chat users (or existing Matrix accounts, as `@user:server`) are made Tuwunel server administrators right after the users are created, and they are the only ones besides `ADMIN_USERNAME`: the Rocket.Chat administrators are not made server administrators any more, and a migrated user who is one without being listed loses this status. `SERVER_ADMINS=''` leaves `ADMIN_USERNAME` alone. When it is not set, the Rocket.Chat administrators become server administrators, as before. An unknown entry stops the migration before any room is created. Set it before the first run: the members it lists may also receive the admin rights of the rooms the admin leaves (see above).
 - `SKIP_EMPTY_ROOMS=true`: rooms without any message to migrate (no message, only system messages, or only messages of users who are not migrated), or without any migrated member, are not created.
+
+Rocket.Chat teams become Matrix spaces, without any setting: one space per team, named after its main room, holding every migrated room of the team (the main room first, the team's default rooms suggested), joined by the members of the main room, created by one of its owners. Rocket.Chat discussions are migrated as ordinary rooms, linked neither to their parent room nor to a space.
 
 ### Preparing a Fresh Tuwunel Instance
 
